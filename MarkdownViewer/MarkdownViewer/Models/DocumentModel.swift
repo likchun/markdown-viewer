@@ -20,15 +20,15 @@ class DocumentModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        // Ensure we have access to the file
-        guard url.startAccessingSecurityScopedResource() else {
-            errorMessage = "Cannot access file"
-            isLoading = false
-            return
-        }
+        // Try to access the file as a security-scoped resource
+        // For file picker URLs, this is required. For drag-and-drop URLs,
+        // the system automatically grants access, so this may return false
+        let isSecurityScoped = url.startAccessingSecurityScopedResource()
 
         defer {
-            url.stopAccessingSecurityScopedResource()
+            if isSecurityScoped {
+                url.stopAccessingSecurityScopedResource()
+            }
         }
 
         do {

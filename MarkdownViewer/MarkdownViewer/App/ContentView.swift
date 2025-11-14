@@ -131,18 +131,31 @@ struct ContentView: View {
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
 
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                return
-            }
+        // Check if provider has a file URL
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            _ = provider.loadObject(ofClass: URL.self) { url, error in
+                if let error = error {
+                    DispatchQueue.main.async {
+                        document.errorMessage = "Failed to load dropped file: \(error.localizedDescription)"
+                    }
+                    return
+                }
 
-            DispatchQueue.main.async {
-                document.loadFile(from: url)
+                guard let url = url else {
+                    DispatchQueue.main.async {
+                        document.errorMessage = "Invalid file URL"
+                    }
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    document.loadFile(from: url)
+                }
             }
+            return true
         }
 
-        return true
+        return false
     }
 }
 
