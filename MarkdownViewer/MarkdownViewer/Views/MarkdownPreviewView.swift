@@ -12,13 +12,8 @@ struct MarkdownPreviewView: View {
     let markdown: String
 
     var body: some View {
-        ScrollView {
-            Text(MarkdownParser.parseWithFullSyntax(markdown))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        WebView(htmlContent: MarkdownParser.generateHTML(from: markdown))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

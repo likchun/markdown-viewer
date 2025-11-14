@@ -44,13 +44,14 @@ struct MarkdownParser {
         }
     }
 
-    /// Generate HTML from markdown for WebView rendering using marked.js
+    /// Generate HTML from markdown for WebView rendering with embedded parser
     static func generateHTML(from markdown: String) -> String {
         // Escape the markdown content for safe embedding in JavaScript
         let escapedMarkdown = markdown
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "`", with: "\\`")
             .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "</", with: "<\\/") // Prevent closing script tags
 
         let html = """
         <!DOCTYPE html>
@@ -225,17 +226,170 @@ struct MarkdownParser {
         </head>
         <body>
             <div id="content"></div>
-            <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
             <script>
-                // Configure marked options
-                marked.setOptions({
-                    breaks: true,
-                    gfm: true
-                });
+                // Embedded lightweight markdown parser
+                function parseMarkdown(md) {
+                    // Escape HTML in content first
+                    function escapeHtml(text) {
+                        const map = {
+                            '&': '&amp;',
+                            '<': '&lt;',
+                            '>': '&gt;',
+                            '"': '&quot;',
+                            "'": '&#039;'
+                        };
+                        return text.replace(/[&<>"']/g, m => map[m]);
+                    }
+
+                    // Process code blocks first to protect them
+                    const codeBlocks = [];
+                    md = md.replace(/```([\\s\\S]*?)```/g, (match, code) => {
+                        const placeholder = `___CODE_BLOCK_${codeBlocks.length}___`;
+                        codeBlocks.push(code.trim());
+                        return placeholder;
+                    });
+
+                    // Process inline code
+                    const inlineCodes = [];
+                    md = md.replace(/`([^`]+)`/g, (match, code) => {
+                        const placeholder = `___INLINE_CODE_${inlineCodes.length}___`;
+                        inlineCodes.push(code);
+                        return placeholder;
+                    });
+
+                    // Now escape HTML
+                    md = escapeHtml(md);
+
+                    // Headers (must be at start of line)
+                    md = md.replace(/^######\\s+(.*)$/gm, '<h6>$1</h6>');
+                    md = md.replace(/^#####\\s+(.*)$/gm, '<h5>$1</h5>');
+                    md = md.replace(/^####\\s+(.*)$/gm, '<h4>$1</h4>');
+                    md = md.replace(/^###\\s+(.*)$/gm, '<h3>$1</h3>');
+                    md = md.replace(/^##\\s+(.*)$/gm, '<h2>$1</h2>');
+                    md = md.replace(/^#\\s+(.*)$/gm, '<h1>$1</h1>');
+
+                    // Horizontal rules
+                    md = md.replace(/^---$/gm, '<hr>');
+                    md = md.replace(/^\\*\\*\\*$/gm, '<hr>');
+
+                    // Bold and italic
+                    md = md.replace(/\\*\\*\\*([^*]+)\\*\\*\\*/g, '<strong><em>$1</em></strong>');
+                    md = md.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
+                    md = md.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+                    md = md.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+                    md = md.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
+                    md = md.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+                    // Strikethrough
+                    md = md.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+                    // Links
+                    md = md.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2">$1</a>');
+
+                    // Images
+                    md = md.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, '<img src="$2" alt="$1">');
+
+                    // Lists - unordered
+                    md = md.replace(/^\\s*[*+-]\\s+(.*)$/gm, '<li>$1</li>');
+
+                    // Lists - ordered
+                    md = md.replace(/^\\s*\\d+\\.\\s+(.*)$/gm, '<li>$1</li>');
+
+                    // Wrap consecutive <li> in <ul>
+                    md = md.replace(/(<li>.*<\\/li>\\n?)+/g, match => {
+                        return '<ul>' + match + '</ul>';
+                    });
+
+                    // Blockquotes
+                    md = md.replace(/^>\\s+(.*)$/gm, '<blockquote>$1</blockquote>');
+
+                    // Wrap consecutive blockquotes
+                    md = md.replace(/(<blockquote>.*<\\/blockquote>\\n?)+/g, match => {
+                        const content = match.replace(/<\\/?blockquote>/g, '');
+                        return '<blockquote>' + content + '</blockquote>';
+                    });
+
+                    // Tables
+                    const lines = md.split('\\n');
+                    let inTable = false;
+                    let tableHtml = '';
+                    let result = [];
+
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i].trim();
+
+                        if (line.includes('|')) {
+                            if (!inTable) {
+                                inTable = true;
+                                tableHtml = '<table>';
+                            }
+
+                            // Check if it's a separator line
+                            if (/^\\|?\\s*[-:]+\\s*\\|/.test(line)) {
+                                continue; // Skip separator lines
+                            }
+
+                            const cells = line.split('|').map(c => c.trim()).filter(c => c);
+                            const tag = (result.length === 0 || !inTable) ? 'th' : 'td';
+
+                            tableHtml += '<tr>';
+                            cells.forEach(cell => {
+                                tableHtml += `<${tag}>${cell}</${tag}>`;
+                            });
+                            tableHtml += '</tr>';
+                        } else {
+                            if (inTable) {
+                                tableHtml += '</table>';
+                                result.push(tableHtml);
+                                inTable = false;
+                                tableHtml = '';
+                            }
+                            result.push(line);
+                        }
+                    }
+
+                    if (inTable) {
+                        tableHtml += '</table>';
+                        result.push(tableHtml);
+                    }
+
+                    md = result.join('\\n');
+
+                    // Restore code blocks
+                    codeBlocks.forEach((code, i) => {
+                        md = md.replace(
+                            `___CODE_BLOCK_${i}___`,
+                            `<pre><code>${escapeHtml(code)}</code></pre>`
+                        );
+                    });
+
+                    // Restore inline code
+                    inlineCodes.forEach((code, i) => {
+                        md = md.replace(
+                            `___INLINE_CODE_${i}___`,
+                            `<code>${escapeHtml(code)}</code>`
+                        );
+                    });
+
+                    // Paragraphs - wrap non-tag lines
+                    md = md.split('\\n').map(line => {
+                        line = line.trim();
+                        if (!line) return '';
+                        if (line.startsWith('<h') || line.startsWith('<ul') ||
+                            line.startsWith('<ol') || line.startsWith('<li') ||
+                            line.startsWith('<pre') || line.startsWith('<blockquote') ||
+                            line.startsWith('<hr') || line.startsWith('<table')) {
+                            return line;
+                        }
+                        return `<p>${line}</p>`;
+                    }).join('\\n');
+
+                    return md;
+                }
 
                 // Parse and render markdown
                 const markdownText = `\(escapedMarkdown)`;
-                document.getElementById('content').innerHTML = marked.parse(markdownText);
+                document.getElementById('content').innerHTML = parseMarkdown(markdownText);
             </script>
         </body>
         </html>
