@@ -44,8 +44,14 @@ struct MarkdownParser {
         }
     }
 
-    /// Generate HTML from markdown for WebView rendering (alternative approach)
+    /// Generate HTML from markdown for WebView rendering using marked.js
     static func generateHTML(from markdown: String) -> String {
+        // Escape the markdown content for safe embedding in JavaScript
+        let escapedMarkdown = markdown
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "$", with: "\\$")
+
         let html = """
         <!DOCTYPE html>
         <html>
@@ -63,13 +69,26 @@ struct MarkdownParser {
                     padding: 20px;
                     max-width: 900px;
                     margin: 0 auto;
-                    background-color: var(--background-color, #ffffff);
-                    color: var(--text-color, #000000);
+                    background-color: #ffffff;
+                    color: #000000;
                 }
                 @media (prefers-color-scheme: dark) {
                     body {
                         background-color: #1e1e1e;
                         color: #d4d4d4;
+                    }
+                    h2, h1 {
+                        border-bottom-color: #444 !important;
+                    }
+                    h6 {
+                        color: #8b949e !important;
+                    }
+                    blockquote {
+                        color: #8b949e !important;
+                        border-left-color: #444 !important;
+                    }
+                    hr {
+                        background-color: #444 !important;
                     }
                 }
                 h1, h2, h3, h4, h5, h6 {
@@ -188,7 +207,6 @@ struct MarkdownParser {
                 img {
                     max-width: 100%;
                     box-sizing: content-box;
-                    background-color: #fff;
                 }
 
                 hr {
@@ -198,46 +216,30 @@ struct MarkdownParser {
                     background-color: #e1e4e8;
                     border: 0;
                 }
+
+                p {
+                    margin-top: 0;
+                    margin-bottom: 16px;
+                }
             </style>
         </head>
         <body>
-            <div id="content">\(escapeHTML(markdown))</div>
+            <div id="content"></div>
+            <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
             <script>
-                // Simple markdown to HTML converter (basic implementation)
-                const content = document.getElementById('content');
-                let text = content.textContent;
+                // Configure marked options
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true
+                });
 
-                // Convert markdown to HTML
-                text = text
-                    // Headers
-                    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-                    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-                    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-                    // Bold
-                    .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
-                    // Italic
-                    .replace(/\\*(.+?)\\*/g, '<em>$1</em>')
-                    // Links
-                    .replace(/\\[([^\\]]+)\\]\\(([^\\)]+)\\)/g, '<a href="$2">$1</a>')
-                    // Inline code
-                    .replace(/`([^`]+)`/g, '<code>$1</code>')
-                    // Line breaks
-                    .replace(/\\n$/gim, '<br />');
-
-                content.innerHTML = text;
+                // Parse and render markdown
+                const markdownText = `\(escapedMarkdown)`;
+                document.getElementById('content').innerHTML = marked.parse(markdownText);
             </script>
         </body>
         </html>
         """
         return html
-    }
-
-    private static func escapeHTML(_ string: String) -> String {
-        return string
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&#39;")
     }
 }
